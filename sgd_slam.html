@@ -1,0 +1,370 @@
+<!--
+
+     Stochastic Gradient Descent SLAM
+     Implementation of SLAM by SGD graph optimization by Olson et al. (2006)
+
+     Paper link: 
+         http://rvsn.csail.mit.edu/content/eolson/graphoptim/eolson-graphoptim2006.pdf
+     
+     @author odestcj / https://github.com/odestcj
+
+     Forgive my coding style.  I am still a typedef struct kind of guy
+     with a noticeable disregard for proper scoping
+
+     Note: the original implementation used threejs, but maved to HTML5 Canvas
+     It should relatively simple to convert rendering to threejs
+
+-->
+
+<html>
+
+<body>
+
+<!-- //////////////////////////////////////////////////
+     /////     JAVASCRIPT INCLUDES
+     ////////////////////////////////////////////////// -->
+
+
+<!-- threejs - https://github.com/mrdoob/three.js/ -->
+<script src="js/three.min.js"></script>
+
+<!-- threejs camera controls helpers -->
+<script src="js/OrbitControls.js"></script>
+
+<!-- threejs keyboard input helper -->
+<script src="js/THREEx.KeyboardState.js"></script>
+
+<!-- odestcj's matrix routines -->
+<script src="js/3jsbot_matrix.js"></script>
+
+<!-- numericjs used for matrix inversion -->
+<script src="js/numeric-1.2.6.min.js"></script>
+
+<script>
+
+//////////////////////////////////////////////////
+/////     MAIN FUNCTION CALLS
+//////////////////////////////////////////////////
+
+// initialize threejs scene, user input, and robot kinematics
+init();
+
+// main animation loop maintained by threejs 
+animate();
+
+
+
+//////////////////////////////////////////////////
+/////     INITIALIZATION FUNCTION DEFINITONS
+//////////////////////////////////////////////////
+
+function init() {
+
+    landmarks = [];  // locations of landmarks
+    poses = [];  // true poses of the robot from noiseless odometry
+    estimates = [];  // estimated poses of the robot from noisy observations
+    constraints = [];  // constraints between poses
+    iters = 0;  // number of optimization iterations that have occurred
+
+    // create landmarks (ignored for now) 
+    for (i=0;i<3;i++) {
+        landmarks[i] = { location:[i*10*3,3*10*(i%2-0.5)] }; // (x,z) 
+    }
+
+    var i,j,i_start; 
+ 
+    // truth pose of the robot
+    var truth_pose = [0,0,0];
+
+    // pose of the robot with noisy odometry
+    var noise_pose = [0,0,0];
+
+    // generate trajectory of the robot 
+    for (i=0;i<81;i++) {
+
+        // movement commands  (hardcoded)
+        if (i<10) odometry = [10,0,0];
+        else if (i<11) odometry = [0,0,Math.PI/2];
+        else if (i<20) odometry = [10,0,0];
+        else if (i<21) odometry = [0,0,Math.PI/2];
+        else if (i<30) odometry = [10,0,0];
+        else if (i<31) odometry = [0,0,Math.PI/2];
+        else if (i<40) odometry = [10,0,0];
+        //else if (i<41) odometry = [0,0,Math.PI/2-0.1]; // rotate second traversal to visualize
+        else if (i<41) odometry = [0,0,Math.PI/2];
+        else if (i<50) odometry = [10,0,0];
+        else if (i<51) odometry = [0,0,Math.PI/2];
+        else if (i<60) odometry = [10,0,0];
+        else if (i<61) odometry = [0,0,Math.PI/2];
+        else if (i<70) odometry = [10,0,0];
+        else if (i<71) odometry = [0,0,Math.PI/2];
+        else if (i<80) odometry = [10,0,0];
+        else if (i<81) odometry = [0,0,Math.PI/2];
+        else odometry = [10,0,0];
+    
+        // integrate true movement of robot into truth pose
+        truth_pose[2] += odometry[2];
+        truth_pose[0] += odometry[0]*Math.cos(truth_pose[2]) + -odometry[1]*Math.sin(truth_pose[2]);
+        truth_pose[1] += odometry[0]*Math.sin(truth_pose[2]) + odometry[1]*Math.cos(truth_pose[2]);
+        poses[i] = { pose:[truth_pose[0],truth_pose[1],truth_pose[2]] };  // (x,z,angle)
+
+        // add noise to current odometry observations
+        noise_odometry = [
+            odometry[0]+0.05*(Math.random()-0.5),
+            odometry[1]+0.05*(Math.random()-0.5),
+            odometry[2]+0.2*(Math.random()-0.5)
+        ];
+
+        // integrate movement observations of robot into odometric pose
+        noise_pose[2] += noise_odometry[2];
+        noise_pose[0] += noise_odometry[0]*Math.cos(noise_pose[2]) + -noise_odometry[1]*Math.sin(noise_pose[2]);
+        noise_pose[1] += noise_odometry[0]*Math.sin(noise_pose[2]) + noise_odometry[1]*Math.cos(noise_pose[2]);
+        estimates[i] = { pose:[noise_pose[0],noise_pose[1],noise_pose[2]] };  // (x,z,angle)
+
+        // add constraint between poses adjacent in time based on observed odometry and expected noise
+        if (i > 0) {
+            constraints[i-1] = {a:i-1,b:i,t:noise_odometry,sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
+        }
+    }
+
+    // constraints for loop closures
+    //constraints[constraints.length] = {a:0,b:40,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
+    //constraints[constraints.length] = {a:40,b:80,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
+    constraints[constraints.length] = {a:0,b:80,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
+    //constraints[constraints.length] = {a:20,b:60,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
+    /*
+    constraints[constraints.length] = {a:10,b:50,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
+    constraints[constraints.length] = {a:30,b:70,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
+    */ 
+
+}
+
+
+//////////////////////////////////////////////////
+/////     ANIMATION AND INTERACTION LOOP
+//////////////////////////////////////////////////
+
+function animate() {
+
+    // note: three.js includes requestAnimationFrame shim
+    // alternative to using setInterval for updating in-browser drawing
+    // this effectively request that the animate function be called again for next draw
+    // http://learningwebgl.com/blog/?p=3189
+    requestAnimationFrame( animate );
+
+
+    // SGD update 
+
+    var i; 
+    iters++; 
+    gamma = [100000000000,100000000000,100000000000];
+    var M = new Array(poses.length); 
+    for (i=0;i<poses.length;i++) {
+        M[i] = [0,0,0];
+    }
+
+    for (i=0;i<constraints.length;i++) {
+
+        var R = [
+            [Math.cos(estimates[constraints[i].a].pose[2]),-Math.sin(estimates[constraints[i].a].pose[2]),0],
+            [Math.sin(estimates[constraints[i].a].pose[2]),Math.cos(estimates[constraints[i].a].pose[2]),0],
+            [0,0,1] ];
+
+        var W = numeric.inv(matrix_multiply(matrix_multiply(R,constraints[i].sigma),matrix_transpose(R)));
+
+        for (k=constraints[i].a+1;k<=constraints[i].b;k++) {
+            M[k][0] += W[0][0];
+            M[k][1] += W[1][1];
+            M[k][2] += W[2][2];
+
+            // not sure this is right
+            gamma[0] = Math.min(gamma[0],W[0][0]);
+            gamma[1] = Math.min(gamma[1],W[1][1]);
+            gamma[2] = Math.min(gamma[2],W[2][2]);
+        }
+
+     }
+
+    for (i=0;i<constraints.length;i++) {
+
+        var Pa = [
+            [Math.cos(estimates[constraints[i].a].pose[2]),-Math.sin(estimates[constraints[i].a].pose[2]),estimates[constraints[i].a].pose[0]],
+            [Math.sin(estimates[constraints[i].a].pose[2]),Math.cos(estimates[constraints[i].a].pose[2]),estimates[constraints[i].a].pose[1]],
+            [0,0,1] ];
+
+        var R = [
+            [Pa[0][0],Pa[0][1],0],
+            [Pa[1][0],Pa[1][1],0],
+            [0,0,1] ];
+
+        var Tab = [
+            [Math.cos(constraints[i].t[2]),-Math.sin(constraints[i].t[2]),constraints[i].t[0]],
+            [Math.sin(constraints[i].t[2]),Math.cos(constraints[i].t[2]),constraints[i].t[1]],
+            [0,0,1]];
+
+        var Pb_prime = matrix_multiply(Pa,Tab);
+        //var r = [  //??? is Pb_prime a vector or a matrix? 
+        //    [Pb_prime[0]-estimates[constraints[i].b].pose[0]], 
+        //    [Pb_prime[1]-estimates[constraints[i].b].pose[1]], 
+        //    [Pb_prime[2]-estimates[constraints[i].b].pose[2]]
+        //];
+
+        // grab pose b's angle through vector transformed by Pb_prime
+        tempvec = [[1],[0],[0]];
+        temprotvec = matrix_multiply(Pb_prime,tempvec);
+        pb_prime_rot = Math.atan2(temprotvec[1],temprotvec[0]);
+
+        var r = [ 
+            [Pb_prime[0][2]-estimates[constraints[i].b].pose[0]], 
+            [Pb_prime[1][2]-estimates[constraints[i].b].pose[1]], 
+            [pb_prime_rot-estimates[constraints[i].b].pose[2]]
+        ];
+
+        // mod2pi(r_3)
+        while (r[2][0] > 2*Math.PI) r[2][0] -= 2*Math.PI;
+        while (r[2][0] < 0) r[2][0] += 2*Math.PI;
+
+        var d_temp = matrix_multiply(numeric.inv(matrix_multiply(matrix_multiply(matrix_transpose(R),constraints[i].sigma),R)),r);
+        d_temp[0][0] *= 2;
+        d_temp[1][0] *= 2;
+        d_temp[2][0] *= 2;
+
+
+        for (j=0;j<3;j++) {
+            var alpha = 1/(gamma[j]*iters);
+      
+            // (incorrect) var totalweight = 1/M[constraints[i].a+1][j] + 1/M[constraints[i].b][j];
+            totalweight = 0;
+            for (k=(constraints[i].a)+1;k<=constraints[i].b;k++) {
+                totalweight += 1/M[k][j];
+            }
+
+            var beta = (constraints[i].b-constraints[i].a)*d_temp[j]*alpha;
+            if (Math.abs(beta) > Math.abs(r[j][0]))
+                beta = r[j][0];
+            delta_pose = 0;
+            for (k=constraints[i].a+1;k<estimates.length;k++) {
+                if ((k >= (constraints[i].a)+1)&&(k <= constraints[i].b)) {
+                    // paper has this update, but is it correct
+                    delta_pose += beta/M[k][j]/totalweight;
+                    // (maybe?) delta_pose += beta/(M[k][j]*totalweight);
+                }
+                estimates[k].pose[j] += delta_pose;
+            }
+            ///console.log(delta_pose);
+        } 
+        
+
+    }
+
+
+    // DRAWING 
+
+    // get canvas element in document and drawing context
+    c = document.getElementById("myCanvas");
+    ctx = c.getContext("2d");
+
+    // clear canvas
+    ctx.clearRect(0,0,c.width,c.height);
+
+    // draw true robot poses  
+    ctx.fillStyle = "#8888AA";
+    for (i=0;i<poses.length;i++) {
+        ctx.fillRect((poses[i].pose[0]-2)+c.width/2,(poses[i].pose[1]-2)-100+c.height/2,4,4);
+    }
+
+    // draw constraints for true robot poses  
+    ctx.fillStyle = "#0000FF";
+    for (i=0;i<poses.length-1;i++) {
+        ctx.beginPath();
+        ctx.moveTo((poses[i].pose[0])+c.width/2,(poses[i].pose[1])-100+c.height/2,4,4);
+        ctx.lineTo((poses[i+1].pose[0])+c.width/2,(poses[i+1].pose[1])-100+c.height/2,4,4);
+        ctx.stroke();
+    }
+
+    // draw landmark positions (not current used)
+    /*
+    ctx.fillStyle = "#FF0000";
+    for (i=0;i<landmarks.length;i++) {
+        ctx.fillRect((landmarks[i].location[0]-2)+c.width/2,(landmarks[i].location[1]-2)+c.height/2,4,4);
+    }
+    */
+    
+
+    // draw robot pose estimates
+    ctx.fillStyle = "#88AA88";
+    for (i=0;i<estimates.length;i++) {
+        ctx.fillRect((estimates[i].pose[0]-2)+c.width/2,(estimates[i].pose[1]-2)+100+c.height/2,4,4);
+    }
+
+    // draw constraints between robot pose estimates
+    ctx.fillStyle = "#00FF00";
+    for (i=0;i<estimates.length-1;i++) {
+        ctx.beginPath();
+        ctx.moveTo((estimates[i].pose[0])+c.width/2,(estimates[i].pose[1])+100+c.height/2,4,4);
+        ctx.lineTo((estimates[i+1].pose[0])+c.width/2,(estimates[i+1].pose[1])+100+c.height/2,4,4);
+        ctx.stroke();
+    }
+
+
+/*  threejs keyboard and rendering calls
+
+    if ( keyboard.pressed("d") )
+        pendulum.control += 0.05;
+    else if ( keyboard.pressed("a") )
+        pendulum.control += -0.05;
+
+    if ( keyboard.pressed("e") )
+        pendulum.desired += 0.05;
+    if ( keyboard.pressed("q") )
+        pendulum.desired += -0.05;
+
+    textbar.innerHTML = 
+        " t = " + t.toFixed(2) + 
+        " dt = " + dt.toFixed(2) + 
+        " x = " + pendulum.angle.toFixed(2) + 
+        " x_dot = " + pendulum.angle_dot.toFixed(2) + 
+        " x_desired = " + pendulum.desired.toFixed(2) + 
+        " u = " + pendulum.control.toFixed(2) +
+        " m = " + pendulum.mass.toFixed(2) +
+        " l = " + pendulum.length.toFixed(2) +
+        " integrator = " + numerical_integrator
+    ;
+
+    // threejs rendering update
+    renderer.render( scene, camera );
+
+*/
+
+}
+
+/*
+function draw_2D_configuration(q) {
+    // draw location of 2D configuration on canvas
+    c = document.getElementById("myCanvas");
+    ctx = c.getContext("2d");
+    ctx.fillStyle = "#8888AA";
+    ctx.fillRect((q[0]*100+200)-3,(q[1]*100+200)-3,6,6);
+}
+
+function draw_2D_edge_configurations(q1,q2) {
+    // draw line between locations of two 2D configurations on canvas
+    c = document.getElementById("myCanvas");
+    ctx = c.getContext("2d");
+    ctx.beginPath();
+    ctx.moveTo(q1[0]*100+200,q1[1]*100+200);
+    ctx.lineTo(q2[0]*100+200,q2[1]*100+200);
+    ctx.stroke();
+}
+*/
+
+
+</script>
+
+<canvas id="myCanvas" width=600 height=600
+style="z-index: 10 ;border:1px solid #000000;">
+</canvas> 
+
+</body>
+</html>
+
