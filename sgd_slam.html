@@ -121,21 +121,21 @@ function init() {
         noise_pose[1] += noise_odometry[0]*Math.sin(noise_pose[2]) + noise_odometry[1]*Math.cos(noise_pose[2]);
         estimates[i] = { pose:[noise_pose[0],noise_pose[1],noise_pose[2]] };  // (x,z,angle)
 
+        // (DO NOT USE THIS, will overconstrain system) 
         // add constraint between poses adjacent in time based on observed odometry and expected noise
+        /*
         if (i > 0) {
             constraints[i-1] = {a:i-1,b:i,t:noise_odometry,sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
         }
+        */
     }
 
     // constraints for loop closures
-    //constraints[constraints.length] = {a:0,b:40,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
-    //constraints[constraints.length] = {a:40,b:80,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
-    constraints[constraints.length] = {a:0,b:80,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
-    //constraints[constraints.length] = {a:20,b:60,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
-    /*
-    constraints[constraints.length] = {a:10,b:50,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
-    constraints[constraints.length] = {a:30,b:70,t:[0,0,0],sigma:[[0.05,0,0],[0,0.05,0],[0,0,0.2]]};
-    */ 
+    constraints[constraints.length] = {a:0,b:40,t:[0,0,0],sigma:[[0.2,0,0],[0,0.2,0],[0,0,0.2]]};
+    for (i=1;i<41;i++) {
+            //constraints[constraints.length] = {a:i,b:i+40,t:[0,0,0],sigma:[[2.2,0,0],[0,2.2,0],[0,0,2.2]]};
+            constraints[constraints.length] = {a:i,b:i+40,t:[0,0,0],sigma:[[0.2,0,0],[0,0.2,0],[0,0,0.2]]};
+    }
 
 }
 
@@ -178,9 +178,16 @@ function animate() {
             M[k][2] += W[2][2];
 
             // not sure this is right
+            /*
             gamma[0] = Math.min(gamma[0],W[0][0]);
             gamma[1] = Math.min(gamma[1],W[1][1]);
             gamma[2] = Math.min(gamma[2],W[2][2]);
+            */
+            if (((gamma[0]*gamma[0])+(gamma[1]*gamma[1])+(gamma[2]*gamma[2]))>(W[0][0]*W[0][0]+(W[1][1]*W[1][1])+(W[2][2]*W[2][2]))) {
+                gamma[0] = W[0][0];
+                gamma[1] = W[1][1];
+                gamma[2] = W[2][2];
+            }
         }
 
      }
@@ -209,14 +216,19 @@ function animate() {
         //    [Pb_prime[2]-estimates[constraints[i].b].pose[2]]
         //];
 
-        // grab pose b's angle through vector transformed by Pb_prime
+        // grab pose b's angle through vector transformed by Pb_prime rotation
         tempvec = [[1],[0],[0]];
         temprotvec = matrix_multiply(Pb_prime,tempvec);
         pb_prime_rot = Math.atan2(temprotvec[1],temprotvec[0]);
 
+        tempvec = [[0],[0],[1]];
+        pb_prime_trn = matrix_multiply(Pb_prime,tempvec);
+
         var r = [ 
-            [Pb_prime[0][2]-estimates[constraints[i].b].pose[0]], 
-            [Pb_prime[1][2]-estimates[constraints[i].b].pose[1]], 
+            //[Pb_prime[0][2]-estimates[constraints[i].b].pose[0]], 
+            [pb_prime_trn[0][0]-estimates[constraints[i].b].pose[0]], 
+            //[Pb_prime[1][2]-estimates[constraints[i].b].pose[1]], 
+            [pb_prime_trn[1][0]-estimates[constraints[i].b].pose[1]], 
             [pb_prime_rot-estimates[constraints[i].b].pose[2]]
         ];
 
@@ -233,25 +245,27 @@ function animate() {
         for (j=0;j<3;j++) {
             var alpha = 1/(gamma[j]*iters);
       
-            // (incorrect) var totalweight = 1/M[constraints[i].a+1][j] + 1/M[constraints[i].b][j];
             totalweight = 0;
             for (k=(constraints[i].a)+1;k<=constraints[i].b;k++) {
                 totalweight += 1/M[k][j];
             }
 
             var beta = (constraints[i].b-constraints[i].a)*d_temp[j]*alpha;
-            if (Math.abs(beta) > Math.abs(r[j][0]))
+            if (Math.abs(beta) > Math.abs(r[j][0])) {
                 beta = r[j][0];
+                beta_residual = true;
+            }
+            else {
+                beta_residual = false;
+            }
+
             delta_pose = 0;
             for (k=constraints[i].a+1;k<estimates.length;k++) {
                 if ((k >= (constraints[i].a)+1)&&(k <= constraints[i].b)) {
-                    // paper has this update, but is it correct
                     delta_pose += beta/M[k][j]/totalweight;
-                    // (maybe?) delta_pose += beta/(M[k][j]*totalweight);
                 }
                 estimates[k].pose[j] += delta_pose;
             }
-            ///console.log(delta_pose);
         } 
         
 
@@ -293,11 +307,13 @@ function animate() {
 
     // draw robot pose estimates
     ctx.fillStyle = "#88AA88";
+    if (beta_residual)  // use a different color when step rate is high
+        ctx.fillStyle = "#FFAAFF";
     for (i=0;i<estimates.length;i++) {
         ctx.fillRect((estimates[i].pose[0]-2)+c.width/2,(estimates[i].pose[1]-2)+100+c.height/2,4,4);
     }
 
-    // draw constraints between robot pose estimates
+    // draw trajectory between robot pose estimates
     ctx.fillStyle = "#00FF00";
     for (i=0;i<estimates.length-1;i++) {
         ctx.beginPath();
@@ -337,26 +353,6 @@ function animate() {
 */
 
 }
-
-/*
-function draw_2D_configuration(q) {
-    // draw location of 2D configuration on canvas
-    c = document.getElementById("myCanvas");
-    ctx = c.getContext("2d");
-    ctx.fillStyle = "#8888AA";
-    ctx.fillRect((q[0]*100+200)-3,(q[1]*100+200)-3,6,6);
-}
-
-function draw_2D_edge_configurations(q1,q2) {
-    // draw line between locations of two 2D configurations on canvas
-    c = document.getElementById("myCanvas");
-    ctx = c.getContext("2d");
-    ctx.beginPath();
-    ctx.moveTo(q1[0]*100+200,q1[1]*100+200);
-    ctx.lineTo(q2[0]*100+200,q2[1]*100+200);
-    ctx.stroke();
-}
-*/
 
 
 </script>
