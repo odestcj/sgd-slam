@@ -62,7 +62,8 @@ function init() {
 
     landmarks = [];  // locations of landmarks
     poses = [];  // true poses of the robot from noiseless odometry
-    estimates = [];  // estimated poses of the robot from noisy observations
+    estimates = [];  // estimated poses of true robot pose from noisy observations
+    odometry_pose = [];  // poses observed from directly from odometry observations
     constraints = [];  // constraints between poses
     iters = 0;  // number of optimization iterations that have occurred
 
@@ -120,6 +121,7 @@ function init() {
         noise_pose[0] += noise_odometry[0]*Math.cos(noise_pose[2]) + -noise_odometry[1]*Math.sin(noise_pose[2]);
         noise_pose[1] += noise_odometry[0]*Math.sin(noise_pose[2]) + noise_odometry[1]*Math.cos(noise_pose[2]);
         estimates[i] = { pose:[noise_pose[0],noise_pose[1],noise_pose[2]] };  // (x,z,angle)
+        odometry_pose[i] = { pose:[noise_pose[0],noise_pose[1],noise_pose[2]] };  // (x,z,angle)
 
         // (DO NOT USE THIS, will overconstrain system) 
         // add constraint between poses adjacent in time based on observed odometry and expected noise
@@ -281,18 +283,25 @@ function animate() {
     // clear canvas
     ctx.clearRect(0,0,c.width,c.height);
 
+    // draw text labels
+    ctx.fillStyle = "#000000";
+    ctx.font = "14px Arial";
+    ctx.fillText("True trajectory",-100+c.width/2,-150+c.height/2);
+    ctx.fillText("Observed trajectory",100+c.width/2,-150+c.height/2);
+    ctx.fillText("Estimated trajectory",c.width/2,50+c.height/2);
+
     // draw true robot poses  
     ctx.fillStyle = "#8888AA";
     for (i=0;i<poses.length;i++) {
-        ctx.fillRect((poses[i].pose[0]-2)+c.width/2,(poses[i].pose[1]-2)-100+c.height/2,4,4);
+        ctx.fillRect((poses[i].pose[0]-2)-100+c.width/2,(poses[i].pose[1]-2)-100+c.height/2,4,4);
     }
 
-    // draw constraints for true robot poses  
+    // draw trajectory for true robot poses  
     ctx.fillStyle = "#0000FF";
     for (i=0;i<poses.length-1;i++) {
         ctx.beginPath();
-        ctx.moveTo((poses[i].pose[0])+c.width/2,(poses[i].pose[1])-100+c.height/2,4,4);
-        ctx.lineTo((poses[i+1].pose[0])+c.width/2,(poses[i+1].pose[1])-100+c.height/2,4,4);
+        ctx.moveTo((poses[i].pose[0])-100+c.width/2,(poses[i].pose[1])-100+c.height/2,4,4);
+        ctx.lineTo((poses[i+1].pose[0])-100+c.width/2,(poses[i+1].pose[1])-100+c.height/2,4,4);
         ctx.stroke();
     }
 
@@ -321,6 +330,22 @@ function animate() {
         ctx.lineTo((estimates[i+1].pose[0])+c.width/2,(estimates[i+1].pose[1])+100+c.height/2,4,4);
         ctx.stroke();
     }
+
+    // draw odometry poses
+    ctx.fillStyle = "#88AA88";
+    for (i=0;i<odometry_pose.length;i++) {
+        ctx.fillRect((odometry_pose[i].pose[0]-2)+100+c.width/2,(odometry_pose[i].pose[1]-2)-100+c.height/2,4,4);
+    }
+
+    // draw trajectory between odometry poses
+    ctx.fillStyle = "#00FF00";
+    for (i=0;i<odometry_pose.length-1;i++) {
+        ctx.beginPath();
+        ctx.moveTo((odometry_pose[i].pose[0])+100+c.width/2,(odometry_pose[i].pose[1])-100+c.height/2,4,4);
+        ctx.lineTo((odometry_pose[i+1].pose[0])+100+c.width/2,(odometry_pose[i+1].pose[1])-100+c.height/2,4,4);
+        ctx.stroke();
+    }
+
 
 
 /*  threejs keyboard and rendering calls
