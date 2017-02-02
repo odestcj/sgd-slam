@@ -12,5 +12,5 @@ sgd-slam
      Forgive my coding style.  I am still a typedef struct kind of guy
      with a noticeable disregard for proper scoping
 
-     Note: the original implementation used threejs, but maved to HTML5 Canvas
+     Note: the original implementation used threejs, but moved to HTML5 Canvas
      It should relatively simple to convert rendering to threejs
